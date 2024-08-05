@@ -240,12 +240,59 @@ void ADIOI_GEN_WriteStridedColl(ADIO_File fd, const void *buf, MPI_Aint count,
 #endif
 }
 
+static void allocate_chunk(ADIO_File fd, ADIO_Offset stride, ADIO_Offset req_len) {
+    fd->current_chunk->free = 0;
+    fd->current_chunk->item_count = 0;
+    fd->current_chunk->stride = stride;
+    fd->current_chunk->req_len = req_len;
+}
 
+static void ADIOI_Exch_and_write(ADIO_File fd, void *buf, MPI_Datatype
+                                 datatype, int nprocs,
+                                 int myrank,
+                                 ADIOI_Access
+                                 * others_req, ADIO_Offset * offset_list,
+                                 ADIO_Offset * len_list, MPI_Count contig_access_count,
+                                 ADIO_Offset min_st_offset, ADIO_Offset fd_size,
+                                 ADIO_Offset * fd_start, ADIO_Offset * fd_end,
+                                 MPI_Aint * buf_idx, int *error_code)
+{
+/*    
+ * to commit a write
+ *    for each i/o
+ *    if (no allocated m chunk or m chunk is full)
+ *        allocate m chunk
+ *    allocate entry
+ *    update entry data
+ *    write to buffer
+ */
+    
+    ADIO_Offset stride = offset_list[0];
+    ADIO_Offset req_len = len_list[0];
+    if(contig_access_count > 1) stride = offset_list[1] - offset_list[0];
 
+    for(int access_num = 0; access_num != contig_access_count; ++access_num) {
+        if(fd->current_chunk->free) allocate_chunk(fd, stride, req_len);
+
+        m_item* item = fd->current_chunk->items + fd->current_chunk->item_count;
+        item->target_offset = offset_list[access_num];
+        item->data_offset = fd->cur_data_offset;
+
+        fd->cur_data_offset += req_len;
+        ++fd->current_chunk->item_count;
+
+        if(fd->current_chunk->item_count == M_ITEM_COUNT) fd->current_chunk = fd->chunks + fd->current_chunk->next_chunk;
+
+        memcpy(fd->data_log_buffer + fd->cur_data_offset, buf + buf_idx[access_num], req_len);
+    }
+    
+    // barrier for all processes to finish
+    // rank 0 merges for now
+}
 /* If successful, error_code is set to MPI_SUCCESS.  Otherwise an error
  * code is created and returned in error_code.
  */
-static void ADIOI_Exch_and_write(ADIO_File fd, void *buf, MPI_Datatype
+static void ADIOI_Exch_and_write_old(ADIO_File fd, void *buf, MPI_Datatype
                                  datatype, int nprocs,
                                  int myrank,
                                  ADIOI_Access
@@ -462,7 +509,7 @@ static void ADIOI_Exch_and_write(ADIO_File fd, void *buf, MPI_Datatype
         if (*error_code != MPI_SUCCESS)
             return;
 
-        flag = 0;
+        flag= 0;
         for (i = 0; i < nprocs; i++)
             if (count[i])
                 flag = 1;

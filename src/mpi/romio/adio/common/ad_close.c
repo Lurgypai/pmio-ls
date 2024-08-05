@@ -104,6 +104,5 @@ void ADIO_Close(ADIO_File fd, int *error_code)
 
     ADIOI_Free(fd->io_buf);
     ADIOI_OneSidedCleanup(fd);
-
     /* memory for fd is freed in MPI_File_close */
 }

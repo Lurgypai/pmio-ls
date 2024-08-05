@@ -146,6 +146,45 @@ MPI_File ADIO_Open(MPI_Comm orig_comm,
      * (e.g. Blue Gene) more efficient */
 
     fd->io_buf = ADIOI_Malloc(fd->hints->cb_buffer_size);
+
+
+    // BAD MAGIC NUMBER (256)
+    int info_flag;
+    char data_buffer_size_str[256];
+    ADIOI_Info_get(info, "data_buffer_size", 256, data_buffer_size_str, &info_flag);
+    fd->data_buffer_size = atoi(data_buffer_size_str);
+    
+    char shared_buffer_folder[256];
+    ADIOI_Info_get(info, "shared_buffer_folder", 256, shared_buffer_folder, &info_flag);
+
+    char metadata_file[256] = {0};
+    char data_file[256] = {0};
+    sprintf(metadata_file, "%s/metadata-log.%04d", shared_buffer_folder, rank);
+    sprintf(data_file, "%s/data-log.%04d", shared_buffer_folder, rank);
+
+    int file, len = sizeof(m_chunk) * M_CHUNK_COUNT;
+    file = open(metadata_file, O_RDWR | O_CREAT | O_TRUNC, 0666);
+    if(file < 0) perror("Error opening node buffer file!\n");
+    ftruncate(file, len);
+    fd->metadata_log_buffer = mmap(fd->metadata_log_buffer, len, PROT_READ | PROT_WRITE, MAP_SHARED, file, 0);
+
+    file = open(data_file, O_RDWR | O_CREAT | O_TRUNC, 0666);
+    if(file < 0) perror("Error opening shared buffer file!\n");
+    ftruncate(file, fd->data_buffer_size);
+    fd->data_log_buffer = mmap(fd->data_log_buffer, fd->data_buffer_size, PROT_READ | PROT_WRITE, MAP_SHARED, file, 0);
+
+    fd->cur_data_offset = 0;
+
+    // consider keeping these separate, and holding the chunks in ram and then copying them once io is complete
+    fd->chunks = fd->metadata_log_buffer;
+    for(int i = 0; i != M_CHUNK_COUNT; ++i) {
+        fd->chunks[i].free = 1;
+        fd->chunks[i].item_count = 0;
+        fd->chunks[i].next_chunk = i+1;
+    }
+    fd->chunks[M_CHUNK_COUNT - 1].next_chunk = 0;
+    fd->current_chunk = fd->chunks;
+
     /* deferred open:
      * we can only do this optimization if 'fd->hints->deferred_open' is set
      * (which means the user hinted 'no_indep_rw' and collective buffering).

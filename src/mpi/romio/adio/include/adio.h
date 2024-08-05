@@ -176,6 +176,23 @@ int fsync(int fd);
 int ftruncate(int fd, off_t length);
 #endif
 
+#define M_ITEM_COUNT 16
+#define M_CHUNK_COUNT 1024
+
+typedef struct _m_item {
+    uint64_t data_offset; // offset into data log where tmp data is stored
+    uint64_t target_offset; // offset into output file where data should go
+} m_item;
+
+typedef struct _m_chunk {
+    uint64_t next_chunk; //index into circular buffer
+    uint64_t free : 1; // is in use
+    uint64_t item_count : 63; // number of items in this chunk
+    uint64_t stride; // space between items
+    uint64_t req_len; // length of each request
+    uint64_t st_offset; // offset from beginning of file
+    m_item items[M_ITEM_COUNT];
+} m_chunk;
 
 typedef struct ADIOI_Fns_struct ADIOI_Fns;
 typedef struct ADIOI_Hints_struct ADIOI_Hints;
@@ -245,6 +262,17 @@ typedef struct ADIOI_FileD {
     struct quobyte_fh *file_handle;     /* file handle for quobytefs */
 #endif
     int dirty_write;            /* this client has written data */
+
+    int64_t data_buffer_size;
+
+    m_chunk* chunks; // array of m_chunks that represents a circular buffer;
+    m_chunk* current_chunk;
+
+    void* metadata_log_buffer;
+    void* data_log_buffer;
+
+
+    ADIO_Offset cur_data_offset;
 } ADIOI_FileD;
 
 typedef struct ADIOI_FileD *ADIO_File;
