@@ -164,14 +164,16 @@ MPI_File ADIO_Open(MPI_Comm orig_comm,
 
     int file, len = sizeof(m_chunk) * M_CHUNK_COUNT;
     file = open(metadata_file, O_RDWR | O_CREAT | O_TRUNC, 0666);
-    if(file < 0) perror("Error opening node buffer file!\n");
+    if(file < 0) perror("ad_open.c: Error opening node buffer file!\n");
     ftruncate(file, len);
-    fd->metadata_log_buffer = mmap(fd->metadata_log_buffer, len, PROT_READ | PROT_WRITE, MAP_SHARED, file, 0);
+    fd->metadata_log_buffer = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_SHARED, file, 0);
+    close(file);
 
     file = open(data_file, O_RDWR | O_CREAT | O_TRUNC, 0666);
-    if(file < 0) perror("Error opening shared buffer file!\n");
+    if(file < 0) perror("ad_open.c: Error opening shared buffer file!\n");
     ftruncate(file, fd->data_buffer_size);
-    fd->data_log_buffer = mmap(fd->data_log_buffer, fd->data_buffer_size, PROT_READ | PROT_WRITE, MAP_SHARED, file, 0);
+    fd->data_log_buffer = mmap(NULL, fd->data_buffer_size, PROT_READ | PROT_WRITE, MAP_SHARED, file, 0);
+    close(file);
 
     fd->cur_data_offset = 0;
 

@@ -257,6 +257,7 @@ static void ADIOI_Exch_and_write(ADIO_File fd, void *buf, MPI_Datatype
                                  ADIO_Offset * fd_start, ADIO_Offset * fd_end,
                                  MPI_Aint * buf_idx, int *error_code)
 {
+    printf("Process %d commiting exch and write, %llu accesses\n", myrank, contig_access_count);
 /*    
  * to commit a write
  *    for each i/o
@@ -271,20 +272,34 @@ static void ADIOI_Exch_and_write(ADIO_File fd, void *buf, MPI_Datatype
     ADIO_Offset req_len = len_list[0];
     if(contig_access_count > 1) stride = offset_list[1] - offset_list[0];
 
+    MPI_Offset total_len = 0;
+
     for(int access_num = 0; access_num != contig_access_count; ++access_num) {
+        printf("\tHandling access %d of %lld from process %d\n", access_num, contig_access_count, myrank);
+        printf("\tAllocating chunk if necessary\n");
         if(fd->current_chunk->free) allocate_chunk(fd, stride, req_len);
 
+        printf("\rCeating new item, target_offset %lld data_offset %lld\n", offset_list[access_num], fd->cur_data_offset + total_len);
         m_item* item = fd->current_chunk->items + fd->current_chunk->item_count;
         item->target_offset = offset_list[access_num];
-        item->data_offset = fd->cur_data_offset;
+        item->data_offset = fd->cur_data_offset + total_len;
+        printf("\tItem created, updating count and offset\n");
 
-        fd->cur_data_offset += req_len;
+
+        if(fd->cur_data_offset > fd->data_buffer_size) fprintf(stderr, "ad_write_coll.c: ERROR: out of data buffer space, giving up on writes.\n");
+
         ++fd->current_chunk->item_count;
 
         if(fd->current_chunk->item_count == M_ITEM_COUNT) fd->current_chunk = fd->chunks + fd->current_chunk->next_chunk;
 
-        memcpy(fd->data_log_buffer + fd->cur_data_offset, buf + buf_idx[access_num], req_len);
+        total_len += req_len;
     }
+
+    printf("final write copying to %p + %lld from %p, size of %llu\n", fd->data_log_buffer, fd->cur_data_offset, buf, total_len);
+    memcpy(fd->data_log_buffer + fd->cur_data_offset, buf, total_len);
+    fd->cur_data_offset += total_len;
+
+    printf("Exch and write completed.\n");
     
     // barrier for all processes to finish
     // rank 0 merges for now
