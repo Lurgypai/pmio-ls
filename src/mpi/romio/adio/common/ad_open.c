@@ -162,17 +162,20 @@ MPI_File ADIO_Open(MPI_Comm orig_comm,
     sprintf(metadata_file, "%s/metadata-log.%04d", shared_buffer_folder, rank);
     sprintf(data_file, "%s/data-log.%04d", shared_buffer_folder, rank);
 
+    
+    // assume the logs have been pre generated so as not to crash out the merging thread when opening
     int file, len = sizeof(m_chunk) * M_CHUNK_COUNT;
-    file = open(metadata_file, O_RDWR | O_CREAT | O_TRUNC, 0666);
-    if(file < 0) perror("ad_open.c: Error opening node buffer file!\n");
-    ftruncate(file, len);
+    file = open(metadata_file, O_RDWR, 0666);
+    if(file < 0) perror("ad_open.c: Error opening metadata buffer file. All metadata files should be initialized for local usage before opening associated files. Error:");
     fd->metadata_log_buffer = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_SHARED, file, 0);
+    if(fd->metadata_log_buffer == MAP_FAILED) perror("ad_open.c: Error mapping metadata log buffer:");
     close(file);
 
     file = open(data_file, O_RDWR | O_CREAT | O_TRUNC, 0666);
-    if(file < 0) perror("ad_open.c: Error opening shared buffer file!\n");
+    if(file < 0) perror("ad_open.c: Error opening data buffer file:");
     ftruncate(file, fd->data_buffer_size);
     fd->data_log_buffer = mmap(NULL, fd->data_buffer_size, PROT_READ | PROT_WRITE, MAP_SHARED, file, 0);
+    if(fd->data_log_buffer == MAP_FAILED) perror("ad_open.c: Error mapping data log buffer:");
     close(file);
 
     fd->cur_data_offset = 0;
@@ -186,6 +189,7 @@ MPI_File ADIO_Open(MPI_Comm orig_comm,
     }
     fd->chunks[M_CHUNK_COUNT - 1].next_chunk = 0;
     fd->current_chunk = fd->chunks;
+    fd->leading_chunk = fd->chunks;
 
     /* deferred open:
      * we can only do this optimization if 'fd->hints->deferred_open' is set

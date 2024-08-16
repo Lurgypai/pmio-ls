@@ -267,10 +267,10 @@ typedef struct ADIOI_FileD {
 
     m_chunk* chunks; // array of m_chunks that represents a circular buffer;
     m_chunk* current_chunk;
+    m_chunk* leading_chunk; // chunk at front of allocated chunk block
 
     void* metadata_log_buffer;
     void* data_log_buffer;
-
 
     ADIO_Offset cur_data_offset;
 } ADIOI_FileD;
