@@ -247,6 +247,37 @@ static void allocate_chunk(ADIO_File fd, ADIO_Offset stride, ADIO_Offset req_len
     fd->current_chunk->req_len = req_len;
 }
 
+static void skip_merge_destage(ADIO_File fd, int myrank) {
+    printf("ad_write_coll.c: Skip merge destage triggered\n");
+    //append integer to end
+    //move
+    char buffer[256];
+    sprintf(buffer, "%s/data-log.%04d.%04d", fd->final_out_folder, myrank, fd->destage_count);
+    int file = open(buffer, O_RDWR | O_CREAT | O_TRUNC, 0666);
+    ftruncate(file, fd->data_buffer_size);
+    void* data = mmap(NULL, fd->data_buffer_size, PROT_WRITE, MAP_SHARED, file, 0);
+    close(file);
+    memcpy(data, fd->data_log_buffer, fd->data_buffer_size);
+    munmap(data, fd->data_buffer_size);
+
+    sprintf(buffer, "%s/metadata-log.%04d.%04d", fd->final_out_folder, myrank, fd->destage_count);
+    file = open(buffer, O_RDWR| O_CREAT | O_TRUNC, 0666);
+    ftruncate(file, M_CHUNK_COUNT * sizeof(m_chunk));
+    data = mmap(NULL, M_CHUNK_COUNT * sizeof(m_chunk), PROT_WRITE, MAP_SHARED, file, 0);
+    close(file);
+    memcpy(data, fd->metadata_log_buffer, M_CHUNK_COUNT * sizeof(m_chunk));
+    munmap(data, M_CHUNK_COUNT * sizeof(m_chunk));
+
+    for(int i = 0; i != M_CHUNK_COUNT; ++i) {
+        fd->chunks[i].free = 1;
+        fd->chunks[i].item_count = 0;
+    }
+
+    fd->cur_data_offset = 0;
+
+    ++fd->destage_count;
+}
+
 static void ADIOI_Exch_and_write(ADIO_File fd, void *buf, MPI_Datatype
                                  datatype, int nprocs,
                                  int myrank,
@@ -257,7 +288,8 @@ static void ADIOI_Exch_and_write(ADIO_File fd, void *buf, MPI_Datatype
                                  ADIO_Offset * fd_start, ADIO_Offset * fd_end,
                                  MPI_Aint * buf_idx, int *error_code)
 {
-    // if(myrank == 0) printf("ad_write_coll.c: Commiting write, %lld accesses\n", contig_access_count);
+    // if(myrank == 0) printf("ad_write_coll.c: Commiting write, %lld accesses, %llu / %lu space used in data buffer\n",
+            // contig_access_count, fd->cur_data_offset, fd->data_buffer_size);
     
 /*    
  * to commit a write
@@ -284,11 +316,14 @@ static void ADIOI_Exch_and_write(ADIO_File fd, void *buf, MPI_Datatype
         //data out first
         if(fd->cur_data_offset + req_len > fd->data_buffer_size) fd->cur_data_offset = 0; // wrap around
         if(!fd->leading_chunk->free && 
-            fd->cur_data_offset < fd->leading_chunk->items[0].data_offset &&
+            fd->cur_data_offset <= fd->leading_chunk->items[0].data_offset &&
             fd->cur_data_offset + req_len > fd->leading_chunk->items[0].data_offset) {
-            // the leading chunks first item is the oldest thing recorded. As the data usage only increases we can be sure this will be the front of the data
-            fprintf(stderr, "ad_write_coll.c: ERROR: Data usage has collided (wrapped around to the head). Giving up on writes.\n");
-            return;
+            if(fd->skip_merge) skip_merge_destage(fd, myrank);
+            else {
+                // the leading chunks first item is the oldest thing recorded. As the data usage only increases we can be sure this will be the front of the data
+                fprintf(stderr, "ad_write_coll.c: ERROR: Data usage has collided (wrapped around to the head). Giving up on writes.\n");
+                return;
+            }
         }
         memcpy(fd->data_log_buffer + fd->cur_data_offset, buf + (access_num * req_len), req_len);
 
@@ -305,8 +340,11 @@ static void ADIOI_Exch_and_write(ADIO_File fd, void *buf, MPI_Datatype
         if(fd->current_chunk->item_count == M_ITEM_COUNT) {
             fd->current_chunk = fd->chunks + fd->current_chunk->next_chunk;
             if(!fd->current_chunk->free) {
-                fprintf(stderr, "ad_write_coll.c: ERROR: out of metadata chunks, giving up on writes.\n");
-                return;
+                if(fd->skip_merge) skip_merge_destage(fd, myrank);
+                else {
+                    fprintf(stderr, "ad_write_coll.c: ERROR: out of metadata chunks, giving up on writes.\n");
+                    return;
+                }
             }
         }
     }

@@ -148,8 +148,15 @@ MPI_File ADIO_Open(MPI_Comm orig_comm,
     fd->io_buf = ADIOI_Malloc(fd->hints->cb_buffer_size);
 
 
-    // BAD MAGIC NUMBER (256)
+    fd->destage_count = 0;
     int info_flag;
+    char skip_merge_str[16];
+    ADIOI_Info_get(info, "skip_merge", 16, skip_merge_str, &info_flag);
+    fd->skip_merge = 0;
+    if(info_flag && !strcmp(skip_merge_str, "enable")) fd->skip_merge = 1;
+    ADIOI_Info_get(info, "final_out_folder", 16, fd->final_out_folder, &info_flag);
+
+    // BAD MAGIC NUMBER (256)
     char data_buffer_size_str[256];
     ADIOI_Info_get(info, "data_buffer_size", 256, data_buffer_size_str, &info_flag);
     fd->data_buffer_size = atoi(data_buffer_size_str);

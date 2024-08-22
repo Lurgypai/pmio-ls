@@ -273,6 +273,10 @@ typedef struct ADIOI_FileD {
     void* data_log_buffer;
 
     ADIO_Offset cur_data_offset;
+
+    char final_out_folder[26];
+    int skip_merge;
+    int destage_count;
 } ADIOI_FileD;
 
 typedef struct ADIOI_FileD *ADIO_File;
