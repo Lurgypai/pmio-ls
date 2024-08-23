@@ -274,6 +274,7 @@ static void skip_merge_destage(ADIO_File fd, int myrank) {
     }
 
     fd->cur_data_offset = 0;
+    fd->current_chunk = fd->chunks;
 
     ++fd->destage_count;
 }
